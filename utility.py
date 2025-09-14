@@ -15,6 +15,9 @@ def format_context(demonstrations,data_type="sst2") -> str:
   """
   prompt = ""
 
+  if demonstrations == None:
+    return prompt
+
   if data_type == "sst2":
     for example in demonstrations:
       sentence, label = example["sentence"],example["label"]
@@ -35,8 +38,8 @@ def evaluate_demonstrations(model,tokenizer, demonstrations, test_data, data_typ
   
   context_prompt = format_context(demonstrations,data_type=data_type)
   cnt = 0
+  candidates = []
   for example in test_data:
-
     sentence = example["sentence"]
     input_prompt = format_query(context_prompt, sentence, data_type=data_type)
     # print(input_prompt)
@@ -54,12 +57,23 @@ def evaluate_demonstrations(model,tokenizer, demonstrations, test_data, data_typ
     generated_text = tokenizer.decode(output_ids[0], skip_special_tokens=True)
     if Label.strip() == label_map_sst2_id2str[example["label"]]:
       cnt += 1
+      candidates.append(example['idx'])
+
     # print(generated_text)
     # print(f"The labe is {Label}, the ground truth is {example["label"]}")
     # print("----\n")
   
   print(f"Accuracy is {cnt / len(test_data)}")
-  return cnt/len(test_data)
+  return cnt/len(test_data), candidates
+
+def evaluate_zeroshot(base_model, tokenizer, test_data, data_type = "sst2"):
+  acc, candidate = evaluate_demonstrations(base_model, tokenizer, demonstrations="", test_data = test_data, data_type=data_type)
+  return acc, candidate
+
+def evaluate_finetuning(fine_tuned_model, tokenizer, test_data, data_type="sst2"):
+  acc, candidate = evaluate_demonstrations(fine_tuned_model, tokenizer, demonstrations="", test_data=test_data, data_type=data_type)
+  return acc, candidate
+
 def data_selection(model, tokenizer, train_data, test_data,data_type = "sst2", num_data_points:int = 32, seed_max:int= 100):
   """
     to select 32 data points by default that can achieve the 
@@ -68,21 +82,21 @@ def data_selection(model, tokenizer, train_data, test_data,data_type = "sst2", n
     to find a random seed eg. from 0 to 100.
 
   """
-  idel_seed = 0
+  ideal_seed = 0
   max_acc = 0
+  ideal_demo = None
   for seed in range(seed_max):
 
     random.seed(seed)
 
     random_indices = random.sample(range(len(train_data)), k = num_data_points)
     demonstrations = train_data.select(random_indices)
-    eval_acc = evaluate_demonstrations(model, tokenizer, demonstrations, test_data, data_type=data_type)
+    eval_acc, candidate = evaluate_demonstrations(model, tokenizer, demonstrations, test_data, data_type=data_type)
     # return
     if eval_acc > max_acc:
       max_acc = eval_acc
       ideal_seed = seed
+      ideal_demo = demonstrations
+
   
-  return idel_seed
-
-
-
+  return ideal_seed, candidate, ideal_demo
