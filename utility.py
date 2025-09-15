@@ -49,7 +49,7 @@ def evaluate_demonstrations(model,tokenizer, demonstrations, test_data, data_typ
       output_ids = model.generate(
       **inputs,
       max_new_tokens = 1, 
-      # do_sample = False
+      do_sample = False
       )
 
     generated_only_ids = output_ids[0, inputs["input_ids"].shape[1]:]

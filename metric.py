@@ -18,7 +18,7 @@ def Rec2FTP(base_model,fine_tuned_model, tokenizer, test_data, demonstrations, d
   # print(cnt_ft)
   # print(cnt_icl)
   metric =len(((set(cnt_ft) - set(cnt_zsl)) & (set(cnt_icl)-set(cnt_zsl)))) \
-   /len((set(cnt_ft) - set(cnt_icl)))
+   /(len((set(cnt_ft) - set(cnt_icl))) + 1e-5)
 
 
   return metric
