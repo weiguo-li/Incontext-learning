@@ -39,7 +39,7 @@ def SimAOU(model,tokenizer,train_data, test_data, best_seed = 0, num_data_points
   demonstrations = select_demonstraions(train_data, num_data_points=32, best_seed = best_seed)
 
   if data_type == "sst2":
-    prompts_zsl = [ format_demonstraions_query("", data_point, data_type) for data_point in test_data["sentence"] ]
+    prompts_zsl = [format_demonstraions_query("", data_point, data_type) for data_point in test_data["sentence"] ]
     prompts_icl = [format_demonstraions_query(context, query, data_type) for context, query in zip([demonstrations]*len(test_data), test_data["sentence"])]
     prompts_ft = prompts_zsl
   elif data_type == "sst5":
@@ -53,8 +53,8 @@ def SimAOU(model,tokenizer,train_data, test_data, best_seed = 0, num_data_points
   # print(prompts_icl[:5])
   # print(prompts_ft[:5])
 
-  icl_hiddensates = extract_hiddenstates(model, tokenizer, prompts_icl)
-  zsl_hiddensates = extract_hiddenstates(model, tokenizer, prompts_zsl)
+  icl_hiddensates = extract_hiddenstates(model, tokenizer, prompts_icl,batch_size=4)
+  zsl_hiddensates = extract_hiddenstates(model, tokenizer, prompts_zsl,batch_size=8)
 
   return icl_hiddensates, zsl_hiddensates
 

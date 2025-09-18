@@ -269,7 +269,10 @@ def finetune_model_eval(model, tokenizer, train_dataset, test_dataset, num_data_
 
 
 
-def extract_hiddenstates(model,tokenizer,test_data: List[str]):
+def extract_hiddenstates(model,tokenizer,test_data: List[str], batch_size=16):
+  """
+  change batch size according to your GPU memory
+  """
   # make sure pad on left side
 
   if type(test_data) == str:
@@ -277,13 +280,23 @@ def extract_hiddenstates(model,tokenizer,test_data: List[str]):
   
   if tokenizer.padding_side != "left":
     tokenizer.padding_side = "left"
-  tokenizer(test_data, return_tensors="pt", padding=True).to(model.device)
 
-  inputs = tokenizer(test_data , return_tensors="pt", padding=True)
-  output = model(**inputs, output_hidden_states=True)
 
-  hidden_states = output.hidden_states
-  return hidden_states
+  all_hidden_states = []
+
+  for i in range(0,len(test_data),batch_size):
+    batch_data = test_data[i:i+batch_size]
+
+
+    with torch.inference_mode():
+      inputs = tokenizer(test_data , return_tensors="pt", padding=True).to(model.device)
+      output = model(**inputs, output_hidden_states=True,pad_token_id=tokenizer.pad_token_id)
+
+      hidden_states = output.hidden_states
+      all_hidden_states.append(hidden_states.cpu().numpy())
+
+  
+  return all_hidden_states
 
 def extract_attentionweights(model,tokenizer,test_data: List[str]):
   pass
