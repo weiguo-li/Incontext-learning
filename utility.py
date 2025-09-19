@@ -138,7 +138,7 @@ def evaluate_demonstrations(model, tokenizer, demonstrations, test_data, data_ty
 
   # import math
   total = len(test_list)
-  for start in range(0, total, batch_size):
+  for start in tqdm(range(0, total, batch_size), leave=True):
     batch = test_list[start:start + batch_size]
     if data_type == "sst2":
       prompts = [format_query(context_prompt, ex["sentence"], data_type=data_type) for ex in batch]
@@ -269,7 +269,7 @@ def finetune_model_eval(model, tokenizer, train_dataset, test_dataset, num_data_
 
 
 
-def extract_hiddenstates(model,tokenizer,test_data: List[str], batch_size=16):
+def extract_hiddenstates(model,tokenizer,test_data: List[str], batch_size=2):
   """
   change batch size according to your GPU memory
   """
@@ -284,19 +284,20 @@ def extract_hiddenstates(model,tokenizer,test_data: List[str], batch_size=16):
 
   all_hidden_states = []
 
-  for i in range(0,len(test_data),batch_size):
+  for i in tqdm(range(0, len(test_data), batch_size), leave=True):
     batch_data = test_data[i:i+batch_size]
+    with torch.no_grad():
+        inputs = tokenizer(batch_data, return_tensors="pt", padding=True).to(model.device)
+        output = model(**inputs, output_hidden_states=True, pad_token_id=tokenizer.pad_token_id)
+        hidden_states = tuple(h.cpu() for h in output.hidden_states)  # Move each layer to CPU
+        all_hidden_states.append(hidden_states)
 
 
-    with torch.inference_mode():
-      inputs = tokenizer(test_data , return_tensors="pt", padding=True).to(model.device)
-      output = model(**inputs, output_hidden_states=True,pad_token_id=tokenizer.pad_token_id)
-
-      hidden_states = output.hidden_states
-      all_hidden_states.append(hidden_states.cpu().numpy())
-
-  
   return all_hidden_states
+
+
+
+
 
 def extract_attentionweights(model,tokenizer,test_data: List[str]):
   pass

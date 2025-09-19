@@ -1,15 +1,13 @@
 from torch.nn.utils.rnn import pad_sequence
-# import metric
 from utility import (data_selection, 
-# evaluate_zeroshot,
-# evaluate_finetuning,
-# evaluate_demonstrations as  evaluate_fewshots, 
 custom_collator, 
 preprocess_function,
-finetune_model_eval
+finetune_model_eval,
 )
 import torch
 import argparse
+
+from metric import SimAOU
 
 from transformers import AutoTokenizer, AutoModelForCausalLM, Trainer, TrainingArguments, DataCollatorForLanguageModeling
 from datasets import load_dataset
@@ -47,6 +45,9 @@ def main(parser):
         test_dataset = test_dataset.map(lambda example, idx: {**example, "idx": idx}, with_indices=True)
     else:
         raise ValueError(f"Unsupported data_type: {args.data_type}")
+    
+
+
 
     # Dispatch
     if args.command == "data" and getattr(args, "subcommand", None) in ["select", "dataselect"]:
@@ -78,8 +79,10 @@ def main(parser):
         print(f"Selected candidate idxs (subset): {candidates[:10]}{'...' if len(candidates) > 10 else ''}")
         return
     elif args.command  == "finetune_eval":
-        finetune_model_eval(model, tokenizer,train_dataset,test_dataset, num_data_points = args.num_data_points, best_seed = args.seed)
-        
+        finetune_model_eval(model, tokenizer,train_dataset,test_dataset, num_data_points = args.num_data_points, best_seed = args.seed, data_type = args.data_type)
+    elif args.command == "SimAOU":
+        SimAOU(model, tokenizer, train_dataset, test_dataset,  best_seed = args.seed, data_type = args.data_type, num_data_points = args.num_data_points)
+
     # Default behavior when no command is provided
     parser.print_help()
 
@@ -87,7 +90,7 @@ def main(parser):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Dual-form attention CLI")
     subparsers = parser.add_subparsers(dest="command")
-    
+    # parser.add_argument("--data-type", type=str, default="sst2", help="Dataset type identifier")
     # Level-1: data
     p_data = subparsers.add_parser("data", help="Data-related commands")
     subparsers_data = p_data.add_subparsers(dest="subcommand")
@@ -109,5 +112,13 @@ if __name__ == "__main__":
     p_train = subparsers.add_parser("finetune_eval", help = "fine tune model for one epoch")
     p_train.add_argument("--num-data-points", type=int, default=32, help="Number of training examples to fine-tune on")
     p_train.add_argument("--seed", type=int, default=0, help="Random seed for sampling training data")
+    p_train.add_argument("--data-type", type=str, default="sst2", help="Dataset type identifier")
+
+    p_SimAOU = subparsers.add_parser("SimAOU", help = "Calcuate SimAOU")
+    p_SimAOU.add_argument("--data-type", type=str, default="sst2", help="Dataset type identifier")
+    p_SimAOU.add_argument("--num-data-points", type=int, default=32, help="Number of training examples to sample per seed")
+    p_SimAOU.add_argument("--seed", type=int, default=0, help="Random seed for sampling training data") 
+
+
 
     main(parser)
