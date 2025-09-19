@@ -57,7 +57,7 @@ def Rec2FTP(base_model,fine_tuned_model, tokenizer, test_data, demonstrations, d
 
 
 
-def SimAOU(model,tokenizer,train_data, test_data, best_seed = 0, num_data_points = 32, data_type = "sst2"):
+def SimAOU(model,tokenizer,train_data, test_data, best_seed = 0, num_data_points = 32, data_type = "sst2", **kwargs):
   demonstrations = select_demonstraions(train_data, num_data_points=num_data_points, best_seed = best_seed)
 
   if data_type == "sst2":
@@ -72,8 +72,8 @@ def SimAOU(model,tokenizer,train_data, test_data, best_seed = 0, num_data_points
   else:
     raise NotImplementedError
 
-  icl_hiddensates = extract_hiddenstates(model, tokenizer, prompts_icl, batch_size=1) # List[Tuple: (num_layers) * (batch_size, seq_len, hidden_size)]
-  zsl_hiddensates = extract_hiddenstates(model, tokenizer, prompts_zsl, batch_size=4)
+  icl_hiddensates = extract_hiddenstates(model, tokenizer, prompts_icl, batch_size=kwargs.get("batch_size_icl", 8)) # List[Tuple: (num_layers) * (batch_size, seq_len, hidden_size)]
+  zsl_hiddensates = extract_hiddenstates(model, tokenizer, prompts_zsl, batch_size=kwargs.get("batch_size_zsl", 16)) # List[Tuple: (num_layers) * (batch_size, seq_len, hidden_size)]
 
 
 

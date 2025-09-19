@@ -291,6 +291,8 @@ def extract_hiddenstates(model,tokenizer,test_data: List[str], batch_size=2):
         output = model(**inputs, output_hidden_states=True, pad_token_id=tokenizer.pad_token_id)
         hidden_states = tuple(h.cpu() for h in output.hidden_states)  # Move each layer to CPU
         all_hidden_states.append(hidden_states)
+        del inputs, output  # Free up memory
+        torch.cuda.empty_cache()  # Clear GPU cache after processing each batch
 
 
   return all_hidden_states
