@@ -21,7 +21,7 @@ import torch
 from tqdm import tqdm
 import random 
 
-def reorganize_last_token_hiddenstates(hiddenstates: List[Tuple[torch.Tensor]]) -> Tuple[torch.Tensor]:
+def reorganize_last_token_hiddenstates(hiddenstates: List[Tuple[torch.Tensor]],all_position = False) -> Tuple[torch.Tensor]:
     # hiddenstates: List of tuples, each tuple is (num_layers,) of tensors (batch, seq_len, hidden_dim)
     num_layers = len(hiddenstates[0])
     layerwise_last_token = [[] for _ in range(num_layers)]  # list for each layer
@@ -29,7 +29,11 @@ def reorganize_last_token_hiddenstates(hiddenstates: List[Tuple[torch.Tensor]]) 
     for batch_tuple in hiddenstates:
         for layer_idx, layer_tensor in enumerate(batch_tuple):
             # Get last token hidden state for each item in batch
-            last_token = layer_tensor[:, -1, :]  # shape: (batch, hidden_dim)
+            if all_position == False:
+                last_token = layer_tensor
+            else:
+              last_token = layer_tensor[:, -1, :]  # shape: (batch, hidden_dim)
+          
             layerwise_last_token[layer_idx].append(last_token)
 
     # Concatenate along batch dimension for each layer
@@ -151,4 +155,4 @@ def SimAOU(model,tokenizer,train_data, test_data, best_seed = 0, num_data_points
 
   print(f"SimAOU(FT) score of  data type {data_type} is {sim_scores:.4f} \n SimAOU(Random) score of  data type {data_type} is {sim_scores_random:.4f}")
 
-  return sim_scores
+  return sim_scores, sim_scores_random

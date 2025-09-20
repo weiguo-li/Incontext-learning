@@ -8,6 +8,8 @@ from transformers import (Trainer, TrainingArguments)
 from torch.nn.utils.rnn import pad_sequence
 from typing import List
 import torch.nn.functional as F
+import gc
+import psutil, os
 
 LABEL_MAPS = {
     "sst2": {
@@ -269,9 +271,10 @@ def finetune_model_eval(model, tokenizer, train_dataset, test_dataset, num_data_
 
 
 
-def extract_hiddenstates(model,tokenizer,test_data: List[str], batch_size=2):
+def extract_hiddenstates(model,tokenizer,test_data: List[str], batch_size=2, return_all=True):
   """
   change batch size according to your GPU memory
+  return_all: if False, yields hidden states instead of accumulating them (memory efficient)
   """
   # make sure pad on left side
 
@@ -281,7 +284,31 @@ def extract_hiddenstates(model,tokenizer,test_data: List[str], batch_size=2):
   if tokenizer.padding_side != "left":
     tokenizer.padding_side = "left"
 
+  # if not return_all:
+  #   # Memory efficient generator mode - yields each batch's hidden states
+  #   for i in tqdm(range(0, len(test_data), batch_size), leave=True):
+  #     batch_data = test_data[i:i+batch_size]
+  #     with torch.no_grad():
+  #         inputs = tokenizer(batch_data, return_tensors="pt", padding=True).to(model.device)
+  #         output = model(**inputs, output_hidden_states=True, pad_token_id=tokenizer.pad_token_id)
+          
+  #         # Process and yield immediately to avoid accumulation
+  #         hidden_states = tuple(h.detach().cpu()[:, -1, :].clone() for h in output.hidden_states)
+          
+  #         print(f"RAM usage: {psutil.Process(os.getpid()).memory_info().rss / 1024**2:.2f} MB")
+          
+  #         # Clean up before yielding
+  #         del inputs, output
+  #         torch.cuda.empty_cache() if torch.cuda.is_available() else None
+          
+  #         yield hidden_states
+          
+  #         # Clean up after yielding
+  #         del hidden_states
+  #         gc.collect()
+  #   return
 
+  # Original mode - accumulate all hidden states
   all_hidden_states = []
 
   for i in tqdm(range(0, len(test_data), batch_size), leave=True):
@@ -289,11 +316,21 @@ def extract_hiddenstates(model,tokenizer,test_data: List[str], batch_size=2):
     with torch.no_grad():
         inputs = tokenizer(batch_data, return_tensors="pt", padding=True).to(model.device)
         output = model(**inputs, output_hidden_states=True, pad_token_id=tokenizer.pad_token_id)
-        hidden_states = tuple(h.cpu() for h in output.hidden_states)  # Move each layer to CPU
+        
+        # Properly detach and clone hidden states to break computation graph
+        hidden_states = tuple(h.detach().cpu()[:, -1, :].clone() for h in output.hidden_states)
         all_hidden_states.append(hidden_states)
-        del inputs, output  # Free up memory
-        torch.cuda.empty_cache()  # Clear GPU cache after processing each batch
-
+        
+        print(f"RAM usage: {psutil.Process(os.getpid()).memory_info().rss / 1024**2:.2f} MB")
+        
+        # Explicitly delete all references
+        del inputs, output
+        # Delete the hidden_states tuple after appending to list
+        del hidden_states
+        
+        # Clear caches
+        torch.cuda.empty_cache() if torch.cuda.is_available() else None
+        gc.collect()  # Run garbage collection
 
   return all_hidden_states
 
@@ -303,6 +340,8 @@ def extract_hiddenstates(model,tokenizer,test_data: List[str], batch_size=2):
 
 def extract_attentionweights(model,tokenizer,test_data: List[str]):
   pass
+
+
 
 
 
