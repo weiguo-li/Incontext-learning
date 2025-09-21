@@ -335,33 +335,221 @@ def extract_hiddenstates(model,tokenizer,test_data: List[str], batch_size=2, ret
   return all_hidden_states
 
 
-def extract_attentionweights(model,tokenizer,test_data: List[str], batch_size=2):
-  """
-  change batch size according to your GPU memory
-  """
-  # make sure pad on left side
-  if type(test_data) == str:
-    test_data = [test_data]
-  if tokenizer.padding_side != "left":
-    tokenizer.padding_side = "left"
-  layerwise_last_token = [[] for _ in range(model.config.num_hidden_layers)]  
+def extract_attentionweights(model,tokenizer, test_data: List[str], batch_size=1, before_softmax=True):
+    """
+    Extract attention weights/scores from the model - Working version for Qwen
+    """
+    if type(test_data) == str:
+        test_data = [test_data]
+    if tokenizer.padding_side != "left":
+        tokenizer.padding_side = "left"
+    
+    layerwise_attention = [[] for _ in range(model.config.num_hidden_layers)]
+    
+    if before_softmax:
+        # Use a different approach: monkey-patch the attention function
+        raw_attention_scores = {}
+        original_forward_funcs = {}
+        
+        def create_hooked_forward(layer_idx, original_forward):
+            def hooked_forward(self, hidden_states, attention_mask=None, position_ids=None, past_key_value=None, output_attentions=False, use_cache=False, **kwargs):
+                # Get Q, K, V projections
+                bsz, q_len, _ = hidden_states.size()
+                
+                query_states = self.q_proj(hidden_states)
+                key_states = self.k_proj(hidden_states)
+                value_states = self.v_proj(hidden_states)
+                
+                # Reshape for multi-head attention
+                query_states = query_states.view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
+                key_states = key_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
+                value_states = value_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
+                
+                # Handle GQA (Grouped Query Attention) if needed
+                if self.num_key_value_heads != self.num_heads:
+                    key_states = key_states.repeat_interleave(self.num_heads // self.num_key_value_heads, dim=1)
+                    value_states = value_states.repeat_interleave(self.num_heads // self.num_key_value_heads, dim=1)
+                
+                # Apply rotary embeddings
+                cos, sin = self.rotary_emb(value_states, seq_len=q_len)
+                query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin, position_ids)
+                
+                # Compute raw attention scores
+                attn_weights = torch.matmul(query_states, key_states.transpose(2, 3)) / (self.head_dim ** 0.5)
+                
+                # Store raw scores BEFORE applying mask and softmax
+                raw_attention_scores[layer_idx] = attn_weights.detach().cpu()
+                
+                # Apply attention mask if provided
+                if attention_mask is not None:
+                    attn_weights = attn_weights + attention_mask
+                
+                # Apply softmax
+                attn_weights = torch.nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype)
+                attn_weights = torch.nn.functional.dropout(attn_weights, p=self.attention_dropout, training=self.training)
+                
+                # Apply attention to values
+                attn_output = torch.matmul(attn_weights, value_states)
+                attn_output = attn_output.transpose(1, 2).contiguous()
+                attn_output = attn_output.reshape(bsz, q_len, self.hidden_size)
+                attn_output = self.o_proj(attn_output)
+                
+                if output_attentions:
+                    return attn_output, attn_weights
+                else:
+                    return attn_output, None
+                    
+            return hooked_forward
+        
+        # Monkey-patch the attention layers
+        for layer_idx, layer in enumerate(model.model.layers):
+            if hasattr(layer, 'self_attn'):
+                attn_module = layer.self_attn
+                original_forward_funcs[layer_idx] = attn_module.forward
+                attn_module.forward = create_hooked_forward(layer_idx, attn_module.forward).__get__(attn_module, attn_module.__class__)
+                print(f"Patched layer {layer_idx} attention forward method")
 
-  for i in tqdm(range(0, len(test_data), batch_size), leave=True):
-    batch_data = test_data[i:i+batch_size]
-    with torch.no_grad():
-        inputs = tokenizer(batch_data, return_tensors="pt", padding=True).to(model.device)
-        output = model(**inputs, output_attentions=True, pad_token_id=tokenizer.pad_token_id)
+    for i in tqdm(range(0, len(test_data), batch_size), leave=True):
+        batch_data = test_data[i:i+batch_size]
+        with torch.no_grad():
+            inputs = tokenizer(batch_data, return_tensors="pt", padding=True).to(model.device)
+            
+            if before_softmax:
+                # Clear previous scores
+                raw_attention_scores.clear()
+                
+                # Forward pass will trigger our patched attention
+                output = model(**inputs, pad_token_id=tokenizer.pad_token_id)
+                
+                print(f"Captured raw attention scores for layers: {list(raw_attention_scores.keys())}")
+                
+                # Extract raw scores
+                for layer_idx in range(model.config.num_hidden_layers):
+                    if layer_idx in raw_attention_scores:
+                        attention_tensor = raw_attention_scores[layer_idx]
+                        # Get last token attention scores: (batch_size, num_heads, seq_len)
+                        layer_scores = attention_tensor[:, :, -1, :]
+                        layerwise_attention[layer_idx].append(layer_scores)
+                        print(f"Layer {layer_idx}: Extracted raw scores with shape: {layer_scores.shape}")
+                    else:
+                        print(f"Warning: No raw attention scores captured for layer {layer_idx}")
+            else:
+                # Use standard attention weights (after softmax)
+                output = model(**inputs, output_attentions=True, pad_token_id=tokenizer.pad_token_id)
+                attentions = output.attentions
+                
+                for layer_idx, layer_attention in enumerate(attentions):
+                    last_token_attention = layer_attention[:, :, -1, :].detach().cpu()
+                    layerwise_attention[layer_idx].append(last_token_attention)
 
-        # Process and store attention weights
-        attentions = output.attentions # Tuple: (num_layers,) * (batch_size, num_heads, seq_len, seq_len)
-        for layer_idx, layer_attention in enumerate(attentions):
-            layerwise_attention[layer_idx].append(layer_attention.detach().cpu())
+            torch.cuda.empty_cache() if torch.cuda.is_available() else None
+            gc.collect()
 
-        # Clear caches
-        torch.cuda.empty_cache() if torch.cuda.is_available() else None
-        gc.collect()  # Run garbage collection
+    # Restore original forward methods
+    if before_softmax:
+        for layer_idx, layer in enumerate(model.model.layers):
+            if layer_idx in original_forward_funcs:
+                layer.self_attn.forward = original_forward_funcs[layer_idx]
+        print("Restored original attention forward methods")
 
-  return layerwise_last_token
+    return layerwise_attention
+
+def extract_raw_attention_scores_simple(model, tokenizer, test_data: List[str], batch_size=1):
+    """
+    Simple direct computation of raw attention scores
+    This manually computes Q@K.T without hooks
+    """
+    if type(test_data) == str:
+        test_data = [test_data]
+    if tokenizer.padding_side != "left":
+        tokenizer.padding_side = "left"
+    
+    layerwise_raw_scores = [[] for _ in range(model.config.num_hidden_layers)]
+    
+    for i in tqdm(range(0, len(test_data), batch_size), leave=True):
+        batch_data = test_data[i:i+batch_size]
+        with torch.no_grad():
+            inputs = tokenizer(batch_data, return_tensors="pt", padding=True).to(model.device)
+            
+            # Get input embeddings
+            input_ids = inputs['input_ids']
+            attention_mask = inputs.get('attention_mask', None)
+            
+            # Start with token embeddings
+            hidden_states = model.model.embed_tokens(input_ids)
+            
+            # Process through each transformer layer
+            for layer_idx, layer in enumerate(model.model.layers):
+                # Apply input layer norm
+                normed_hidden_states = layer.input_layernorm(hidden_states)
+                
+                # Get attention module
+                attn = layer.self_attn
+                
+                # Compute Q, K, V
+                bsz, seq_len, _ = normed_hidden_states.shape
+                
+                query_states = attn.q_proj(normed_hidden_states)
+                key_states = attn.k_proj(normed_hidden_states)
+                value_states = attn.v_proj(normed_hidden_states)
+                
+                # Reshape for multi-head attention
+                query_states = query_states.view(bsz, seq_len, attn.num_heads, attn.head_dim).transpose(1, 2)
+                key_states = key_states.view(bsz, seq_len, attn.num_key_value_heads, attn.head_dim).transpose(1, 2)
+                value_states = value_states.view(bsz, seq_len, attn.num_key_value_heads, attn.head_dim).transpose(1, 2)
+                
+                # Handle GQA if needed
+                if attn.num_key_value_heads != attn.num_heads:
+                    key_states = key_states.repeat_interleave(attn.num_heads // attn.num_key_value_heads, dim=1)
+                    value_states = value_states.repeat_interleave(attn.num_heads // attn.num_key_value_heads, dim=1)
+                
+                # Compute raw attention scores Q@K.T/sqrt(d_k)
+                raw_scores = torch.matmul(query_states, key_states.transpose(2, 3)) / (attn.head_dim ** 0.5)
+                
+                # Store raw scores for the last token
+                last_token_raw_scores = raw_scores[:, :, -1, :].cpu()
+                layerwise_raw_scores[layer_idx].append(last_token_raw_scores)
+                
+                # Apply attention mask and softmax for the forward pass to continue correctly
+                if attention_mask is not None:
+                    # Create causal mask
+                    causal_mask = torch.triu(torch.ones((seq_len, seq_len), dtype=torch.bool), diagonal=1)
+                    causal_mask = causal_mask.unsqueeze(0).unsqueeze(0).to(raw_scores.device)
+                    raw_scores = raw_scores.masked_fill(causal_mask, float('-inf'))
+                
+                attn_weights = F.softmax(raw_scores, dim=-1)
+                attn_output = torch.matmul(attn_weights, value_states)
+                
+                # Reshape and project output
+                attn_output = attn_output.transpose(1, 2).contiguous().view(bsz, seq_len, -1)
+                attn_output = attn.o_proj(attn_output)
+                
+                # Add residual connection
+                hidden_states = hidden_states + attn_output
+                
+                # Apply MLP
+                residual = hidden_states
+                hidden_states = layer.post_attention_layernorm(hidden_states)
+                hidden_states = layer.mlp(hidden_states)
+                hidden_states = residual + hidden_states
+            
+            torch.cuda.empty_cache() if torch.cuda.is_available() else None
+            gc.collect()
+    
+    return layerwise_raw_scores
+
+def apply_rotary_pos_emb(q, k, cos, sin, position_ids):
+    """Apply rotary positional embeddings"""
+    # This is a simplified version - adjust based on your Qwen version
+    def rotate_half(x):
+        x1 = x[..., : x.shape[-1] // 2]
+        x2 = x[..., x.shape[-1] // 2 :]
+        return torch.cat((-x2, x1), dim=-1)
+    
+    # Apply to queries and keys
+    q_embed = (q * cos) + (rotate_half(q) * sin)
+    k_embed = (k * cos) + (rotate_half(k) * sin)
+    return q_embed, k_embed
 
 
 

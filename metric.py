@@ -1,4 +1,4 @@
-from prompt_toolkit import prompt
+# from prompt_toolkit import prompt
 from utility import (
   evaluate_demonstrations as evaluate_fewshots,
   evaluate_zeroshot,
@@ -159,6 +159,20 @@ def SimAOU(model,tokenizer,train_data, test_data, best_seed = 0, num_data_points
 
 
 
-def SimAM():
-  """ similarity of attention maps """
-   pass
+def SimAM(model,tokenizer,train_data, test_data, best_seed = 0, num_data_points = 32, data_type = "sst2", **kwargs):
+  """ Similarity of Attention Maps """
+  demonstrations = select_demonstraions(train_data, num_data_points=num_data_points, best_seed = best_seed)
+  if data_type == "sst2":
+    prompts_zsl = [format_demonstraions_query("", data_point, data_type) for data_point in test_data["sentence"] ]
+    prompts_icl = [format_demonstraions_query(context, query, data_type) for context, query in zip([demonstrations]*len(test_data), test_data["sentence"])]
+    prompts_ft = prompts_zsl
+  elif data_type == "sst5":
+    prompts_zsl = [format_demonstraions_query("", data_point, data_type) for data_point in test_data["text"] ]
+    prompts_icl = [format_demonstraions_query(context, query, data_type) for context, query in zip([demonstrations]*len(test_data), test_data["text"])]
+    prompts_ft = prompts_zsl  
+  else:    raise NotImplementedError  
+
+  zsl_attentionweights = extract_attentionweights(model, tokenizer, prompts_zsl, batch_size=kwargs.get("batch_size_zsl", 16))
+
+  icl_attentionweights = extract_attentionweights(model, tokenizer, prompts_icl, batch_size=kwargs.get("batch_size_icl", 4))
+

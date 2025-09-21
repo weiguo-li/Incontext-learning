@@ -12,6 +12,8 @@ from metric import SimAOU
 from transformers import AutoTokenizer, AutoModelForCausalLM, Trainer, TrainingArguments, DataCollatorForLanguageModeling
 from datasets import load_dataset
 
+from transformers import Qwen3forCausalLM, Qwen3Tokenizer
+
 
 # Load Qwen3 tokenizer and model
 model_name = "Qwen/Qwen3-0.6B"
