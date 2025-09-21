@@ -76,7 +76,7 @@ def SimAOU(model,tokenizer,train_data, test_data, best_seed = 0, num_data_points
   else:
     raise NotImplementedError
 
-  icl_hiddensates = extract_hiddenstates(model, tokenizer, prompts_icl, batch_size=kwargs.get("batch_size_icl", 8)) # List[Tuple: (num_layers) * (batch_size, seq_len, hidden_size)]
+  icl_hiddensates = extract_hiddenstates(model, tokenizer, prompts_icl, batch_size=kwargs.get("batch_size_icl", 4)) # List[Tuple: (num_layers) * (batch_size, seq_len, hidden_size)]
   zsl_hiddensates = extract_hiddenstates(model, tokenizer, prompts_zsl, batch_size=kwargs.get("batch_size_zsl", 16)) # List[Tuple: (num_layers) * (batch_size, seq_len, hidden_size)]
 
 
@@ -109,7 +109,7 @@ def SimAOU(model,tokenizer,train_data, test_data, best_seed = 0, num_data_points
   trainer.train()
   print("training finished!")
 
-  ft_hiddensates = extract_hiddenstates(model, tokenizer, prompts_ft, batch_size=8)
+  ft_hiddensates = extract_hiddenstates(model, tokenizer, prompts_ft, batch_size=kwargs.get("batch_size_ft", 16)) # List[Tuple: (num_layers) * (batch_size, seq_len, hidden_size)]
 
   def cal_sim(
     ft_hiddensates: List[Tuple[torch.Tensor]],
@@ -156,3 +156,9 @@ def SimAOU(model,tokenizer,train_data, test_data, best_seed = 0, num_data_points
   print(f"SimAOU(FT) score of  data type {data_type} is {sim_scores:.4f} \n SimAOU(Random) score of  data type {data_type} is {sim_scores_random:.4f}")
 
   return sim_scores, sim_scores_random
+
+
+
+def SimAM():
+  """ similarity of attention maps """
+   pass

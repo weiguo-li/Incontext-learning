@@ -321,7 +321,7 @@ def extract_hiddenstates(model,tokenizer,test_data: List[str], batch_size=2, ret
         hidden_states = tuple(h.detach().cpu()[:, -1, :].clone() for h in output.hidden_states)
         all_hidden_states.append(hidden_states)
         
-        print(f"RAM usage: {psutil.Process(os.getpid()).memory_info().rss / 1024**2:.2f} MB")
+        # print(f"RAM usage: {psutil.Process(os.getpid()).memory_info().rss / 1024**2:.2f} MB")
         
         # Explicitly delete all references
         del inputs, output
@@ -335,11 +335,33 @@ def extract_hiddenstates(model,tokenizer,test_data: List[str], batch_size=2, ret
   return all_hidden_states
 
 
+def extract_attentionweights(model,tokenizer,test_data: List[str], batch_size=2):
+  """
+  change batch size according to your GPU memory
+  """
+  # make sure pad on left side
+  if type(test_data) == str:
+    test_data = [test_data]
+  if tokenizer.padding_side != "left":
+    tokenizer.padding_side = "left"
+  layerwise_last_token = [[] for _ in range(model.config.num_hidden_layers)]  
 
+  for i in tqdm(range(0, len(test_data), batch_size), leave=True):
+    batch_data = test_data[i:i+batch_size]
+    with torch.no_grad():
+        inputs = tokenizer(batch_data, return_tensors="pt", padding=True).to(model.device)
+        output = model(**inputs, output_attentions=True, pad_token_id=tokenizer.pad_token_id)
 
+        # Process and store attention weights
+        attentions = output.attentions # Tuple: (num_layers,) * (batch_size, num_heads, seq_len, seq_len)
+        for layer_idx, layer_attention in enumerate(attentions):
+            layerwise_attention[layer_idx].append(layer_attention.detach().cpu())
 
-def extract_attentionweights(model,tokenizer,test_data: List[str]):
-  pass
+        # Clear caches
+        torch.cuda.empty_cache() if torch.cuda.is_available() else None
+        gc.collect()  # Run garbage collection
+
+  return layerwise_last_token
 
 
 
