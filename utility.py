@@ -11,6 +11,9 @@ import torch.nn.functional as F
 import gc
 import psutil, os
 
+from transformers.models.qwen3.modeling_qwen3  import apply_rotary_pos_emb, Qwen3Attention
+from transformers.utils.deprecation import deprecate_kwarg
+
 LABEL_MAPS = {
     "sst2": {
         "id2str": {0: "negative", 1: "positive"},

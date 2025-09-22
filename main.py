@@ -1,4 +1,4 @@
-from torch.nn.utils.rnn import pad_sequence
+# from torch.nn.utils.rnn import pad_sequence
 from utility import (data_selection, 
 custom_collator, 
 preprocess_function,
@@ -12,7 +12,7 @@ from metric import SimAOU
 from transformers import AutoTokenizer, AutoModelForCausalLM, Trainer, TrainingArguments, DataCollatorForLanguageModeling
 from datasets import load_dataset
 
-from transformers import Qwen3forCausalLM, Qwen3Tokenizer
+from transformersimport Qwen3ForCausalLM
 
 
 # Load Qwen3 tokenizer and model
