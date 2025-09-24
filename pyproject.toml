@@ -1,0 +1,36 @@
+[project]
+name = "dual-form-attention"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "datasets>=4.0.0",
+    "scipy>=1.16.2",
+    "torch>=2.6.0",
+    "torchvision>=0.21.0",
+    "transformers>=4.56.0",
+]
+
+[tool.uv.sources]
+torch = [
+  { index = "pytorch-cu124", marker = "sys_platform == 'linux'" },
+]
+torchvision = [
+  { index = "pytorch-cu124", marker = "sys_platform == 'linux'" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cu124"
+url = "https://download.pytorch.org/whl/cu124"
+explicit = true
+
+[dependency-groups]
+dev = [
+    "ipykernel>=6.30.1",
+]
+
+[tool.ruff]
+# Increase line length to allow longer chained method calls
+line-length = 88  # or whatever length you prefer (default is 88)
+

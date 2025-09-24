@@ -1,29 +1,29 @@
 # Dual-Form Attention: Transformer Architecture Verification
 
-This project implements relaxed linear attention mechanisms to verify the dual form of transformer architecture, focusing on in-context learning capabilities through attention analysis.
+This project reimplements and extends the methods from "Why Can GPT Learn In-Context? Language Models Implicitly Perform Gradient Descent as Meta-Optimizers" (Dai et al., 2022) using Qwen models. It implements relaxed linear attention mechanisms to verify the dual form of transformer architecture, focusing on in-context learning capabilities through attention analysis.
 
 ## Overview
 
-The project investigates the relationship between fine-tuning and in-context learning (ICL) in transformer models by analyzing attention patterns and hidden state similarities. It implements custom attention mechanisms and various metrics to understand how transformers process contextual information.
+The project investigates the relationship between fine-tuning and in-context learning (ICL) in transformer models by analyzing attention patterns and hidden state similarities. Building on the theoretical framework from Dai et al. (2022), this implementation adapts their methods to work with Qwen3 models, providing custom attention mechanisms and various metrics to understand how transformers process contextual information.
 
 ## Key Components
 
 ### Core Files
 
-- **[`customized_Qwen.py`](incontext_learning/dual-form-attention/customized_Qwen.py)**: Custom Qwen3 attention implementation with raw attention weight extraction capabilities
-- **[`metric.py`](incontext_learning/dual-form-attention/metric.py)**: Implementation of similarity metrics (SimAOU, SimAM, Kendall's tau)
-- **[`utility.py`](incontext_learning/dual-form-attention/utility.py)**: Utility functions for data processing, evaluation, and feature extraction
-- **[`main.py`](incontext_learning/dual-form-attention/main.py)**: Command-line interface for running experiments
-- **[`test.ipynb`](incontext_learning/dual-form-attention/test.ipynb)**: Jupyter notebook for interactive testing and experimentation
+- **`customized_Qwen.py`**: Custom Qwen3 attention implementation with raw attention weight extraction capabilities
+- **`metric.py`**: Implementation of similarity metrics (SimAOU, SimAM, Kendall's tau)
+- **`utility.py`**: Utility functions for data processing, evaluation, and feature extraction
+- **`main.py`**: Command-line interface for running experiments
+- **`test.ipynb`**: Jupyter notebook for interactive testing and experimentation
 
 ### Key Features
 
-1. **Custom Attention Module**: [`Qwen3Attention_v1`](incontext_learning/dual-form-attention/customized_Qwen.py) with raw attention weight storage
-2. **Attention Weight Collection**: [`AttentionWeightsCollector`](incontext_learning/dual-form-attention/customized_Qwen.py) for extracting attention patterns
+1. **Custom Attention Module**: `Qwen3Attention_v1` with raw attention weight storage
+2. **Attention Weight Collection**: `AttentionWeightsCollector` for extracting attention patterns
 3. **Similarity Metrics**:
-   - [`SimAOU`](incontext_learning/dual-form-attention/metric.py): Similarity of Activations after Optimized Update
-   - [`SimAM`](incontext_learning/dual-form-attention/metric.py): Similarity of Attention Maps
-   - [`Kendall`](incontext_learning/dual-form-attention/metric.py): Kendall's tau correlation analysis
+   - `SimAOU`: Similarity of Activations after Optimized Update
+   - `SimAM`: Similarity of Attention Maps
+   - `Kendall`: Kendall's tau correlation analysis
 
 ## Installation
 
@@ -42,7 +42,7 @@ pip install torch transformers datasets tqdm scipy numpy
 
 ### Command Line Interface
 
-The project provides a comprehensive CLI through [`main.py`](incontext_learning/dual-form-attention/main.py):
+The project provides a comprehensive CLI through `main.py`:
 
 #### Data Selection
 ```bash
@@ -92,18 +92,18 @@ sim_scores = SimAOU(model, tokenizer, train_data, test_data)
 ## Key Functions
 
 ### Attention Analysis
-- [`extract_attn_weights()`](incontext_learning/dual-form-attention/utility.py): Extract attention weights from model layers
-- [`extract_attentionweights()`](incontext_learning/dual-form-attention/utility.py): Extract raw attention scores before softmax
-- [`get_query_states()`](incontext_learning/dual-form-attention/utility.py): Extract query states from attention layers
+- `extract_attn_weights()`: Extract attention weights from model layers
+- `extract_attentionweights()`: Extract raw attention scores before softmax
+- `get_query_states()`: Extract query states from attention layers
 
 ### Evaluation
-- [`evaluate_demonstrations()`](incontext_learning/dual-form-attention/utility.py): Evaluate model performance with demonstrations
-- [`evaluate_zeroshot()`](incontext_learning/dual-form-attention/utility.py): Zero-shot evaluation
-- [`evaluate_finetuning()`](incontext_learning/dual-form-attention/utility.py): Fine-tuned model evaluation
+- `evaluate_demonstrations()`: Evaluate model performance with demonstrations
+- `evaluate_zeroshot()`: Zero-shot evaluation
+- `evaluate_finetuning()`: Fine-tuned model evaluation
 
 ### Training
-- [`enable_kv_only_training()`](incontext_learning/dual-form-attention/utility.py): Enable training only key and value parameters
-- [`finetune_model_eval()`](incontext_learning/dual-form-attention/utility.py): Fine-tune model and evaluate
+- `enable_kv_only_training()`: Enable training only key and value parameters
+- `finetune_model_eval()`: Fine-tune model and evaluate
 
 ## Metrics Explanation
 
@@ -119,14 +119,14 @@ Calculates rank correlation between inner products of query states and attention
 ## Model Architecture
 
 The project uses Qwen3-0.6B as the base model with custom attention mechanisms:
-- Custom [`Qwen3Attention_v1`](incontext_learning/dual-form-attention/customized_Qwen.py) class with raw weight storage
-- [`eager_attention_forward()`](incontext_learning/dual-form-attention/customized_Qwen.py) function for attention computation
-- Support for grouped query attention via [`repeat_kv()`](incontext_learning/dual-form-attention/customized_Qwen.py)
+- Custom `Qwen3Attention_v1` class with raw weight storage
+- `eager_attention_forward()` function for attention computation
+- Support for grouped query attention via `repeat_kv()`
 
 ## Experimental Setup
 
 The experiments typically involve:
-1. Selecting optimal demonstration examples via [`data_selection()`](incontext_learning/dual-form-attention/utility.py)
+1. Selecting optimal demonstration examples via `data_selection()`
 2. Extracting features (attention weights, hidden states) for different conditions
 3. Fine-tuning models on demonstration data
 4. Computing similarity metrics between ICL and fine-tuning representations
@@ -145,6 +145,18 @@ dual-form-attention/
 └── README.md           # This file
 ```
 
+## Citation
+
+This work reimplements and extends the methods described in:
+
+```bibtex
+@Inproceedings{Dai2022WhyCG,
+ author = {Damai Dai and Yutao Sun and Li Dong and Y. Hao and Shuming Ma and Zhifang Sui and Furu Wei},
+ title = {Why Can GPT Learn In-Context? Language Models Implicitly Perform Gradient Descent as Meta-Optimizers},
+ year = {2022}
+}
+```
+
 ## Contributing
 
 This project is part of research on dual-form transformer architectures. For questions or contributions, please refer to the codebase documentation and inline comments.
@@ -154,5 +166,5 @@ This project is part of research on dual-form transformer architectures. For que
 - The project requires GPU support for efficient model inference
 - Memory usage is optimized through garbage collection and CUDA cache management
 - Batch sizes may need adjustment based on available GPU memory
-- The [`AttentionWeightsCollector`](incontext_learning/dual-form-attention/customized_Qwen.py) enables extraction of attention weights before softmax normalization
+- The `AttentionWeightsCollector` enables extraction of attention weights before softmax normalization
 
