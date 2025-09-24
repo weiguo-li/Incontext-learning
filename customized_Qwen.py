@@ -10,7 +10,6 @@ from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS
 from transformers.utils import TransformersKwargs
 
 
-
 @use_kernel_forward_from_hub("RMSNorm")
 class Qwen3RMSNorm(nn.Module):
     def __init__(self, hidden_size, eps: float = 1e-6) -> None:
@@ -30,7 +29,7 @@ class Qwen3RMSNorm(nn.Module):
 
     def extra_repr(self):
         return f"{tuple(self.weight.shape)}, eps={self.variance_epsilon}"
-    
+
 
 class Qwen3Attention_v1(nn.Module):
     """Multi-headed attention from 'Attention Is All You Need' paper
@@ -42,27 +41,67 @@ class Qwen3Attention_v1(nn.Module):
         super().__init__()
         self.config = config
         self.layer_idx = layer_idx
-        self.head_dim = getattr(config, "head_dim", config.hidden_size // config.num_attention_heads)
-        self.num_key_value_groups = config.num_attention_heads // config.num_key_value_heads
+        self.head_dim = getattr(
+            config, "head_dim", config.hidden_size // config.num_attention_heads
+        )
+        self.num_key_value_groups = (
+            config.num_attention_heads // config.num_key_value_heads
+        )
         self.scaling = self.head_dim**-0.5
         self.attention_dropout = config.attention_dropout
         self.is_causal = True
 
         self.q_proj = nn.Linear(
-            config.hidden_size, config.num_attention_heads * self.head_dim, bias=config.attention_bias
+            config.hidden_size,
+            config.num_attention_heads * self.head_dim,
+            bias=config.attention_bias,
         )
         self.k_proj = nn.Linear(
-            config.hidden_size, config.num_key_value_heads * self.head_dim, bias=config.attention_bias
+            config.hidden_size,
+            config.num_key_value_heads * self.head_dim,
+            bias=config.attention_bias,
         )
         self.v_proj = nn.Linear(
-            config.hidden_size, config.num_key_value_heads * self.head_dim, bias=config.attention_bias
+            config.hidden_size,
+            config.num_key_value_heads * self.head_dim,
+            bias=config.attention_bias,
         )
         self.o_proj = nn.Linear(
-            config.num_attention_heads * self.head_dim, config.hidden_size, bias=config.attention_bias
+            config.num_attention_heads * self.head_dim,
+            config.hidden_size,
+            bias=config.attention_bias,
         )
-        self.q_norm = Qwen3RMSNorm(self.head_dim, eps=config.rms_norm_eps)  # unlike olmo, only on the head dim!
-        self.k_norm = Qwen3RMSNorm(self.head_dim, eps=config.rms_norm_eps)  # thus post q_norm does not need reshape
-        self.sliding_window = config.sliding_window if config.layer_types[layer_idx] == "sliding_attention" else None
+        self.q_norm = Qwen3RMSNorm(
+            self.head_dim, eps=config.rms_norm_eps
+        )  # unlike olmo, only on the head dim!
+        self.k_norm = Qwen3RMSNorm(
+            self.head_dim, eps=config.rms_norm_eps
+        )  # thus post q_norm does not need reshape
+        self.sliding_window = (
+            config.sliding_window
+            if config.layer_types[layer_idx] == "sliding_attention"
+            else None
+        )
+
+        # Add attributes for storing raw weights
+        self.store_raw_weights = False
+        self.last_raw_weights = None
+
+        self.store_query_cache = False
+        self.query_cacche = None
+
+    def enable_raw_weights_storage(self):
+        """Enable storage of raw attention weights"""
+        self.store_raw_weights = True
+
+    def disable_raw_weights_storage(self):
+        """Disable storage of raw attention weights"""
+        self.store_raw_weights = False
+        self.last_raw_weights = None
+
+    def get_raw_weights(self):
+        """Get the last stored raw attention weights"""
+        return self.last_raw_weights
 
     @deprecate_kwarg("past_key_value", new_name="past_key_values", version="4.58")
     def forward(
@@ -74,26 +113,36 @@ class Qwen3Attention_v1(nn.Module):
         cache_position: Optional[torch.LongTensor] = None,
         **kwargs: Unpack[FlashAttentionKwargs],
     ) -> tuple[torch.Tensor, Optional[torch.Tensor]]:
-        print(f"customized attention layer {self.layer_idx} is called")
+        # print(f"customized attention layer {self.layer_idx} is called")
 
         input_shape = hidden_states.shape[:-1]
         hidden_shape = (*input_shape, -1, self.head_dim)
 
-        query_states = self.q_norm(self.q_proj(hidden_states).view(hidden_shape)).transpose(1, 2)
-        key_states = self.k_norm(self.k_proj(hidden_states).view(hidden_shape)).transpose(1, 2)
+        query_states = self.q_norm(
+            self.q_proj(hidden_states).view(hidden_shape)
+        ).transpose(1, 2)
+        key_states = self.k_norm(
+            self.k_proj(hidden_states).view(hidden_shape)
+        ).transpose(1, 2)
         value_states = self.v_proj(hidden_states).view(hidden_shape).transpose(1, 2)
 
         cos, sin = position_embeddings
-        query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
+        query_states, key_states = apply_rotary_pos_emb(
+            query_states, key_states, cos, sin
+        )
 
         if past_key_values is not None:
             # sin and cos are specific to RoPE models; cache_position needed for the static cache
             cache_kwargs = {"sin": sin, "cos": cos, "cache_position": cache_position}
-            key_states, value_states = past_key_values.update(key_states, value_states, self.layer_idx, cache_kwargs)
+            key_states, value_states = past_key_values.update(
+                key_states, value_states, self.layer_idx, cache_kwargs
+            )
 
         attention_interface: Callable = eager_attention_forward
         if self.config._attn_implementation != "eager":
-            attention_interface = ALL_ATTENTION_FUNCTIONS[self.config._attn_implementation]
+            attention_interface = ALL_ATTENTION_FUNCTIONS[
+                self.config._attn_implementation
+            ]
 
         attn_output, attn_weights = attention_interface(
             self,
@@ -109,6 +158,11 @@ class Qwen3Attention_v1(nn.Module):
 
         attn_output = attn_output.reshape(*input_shape, -1).contiguous()
         attn_output = self.o_proj(attn_output)
+
+        # # Store raw attention weights if enabled
+        # if self.store_raw_weights:
+        #     self.last_raw_weights = attn_weights
+
         return attn_output, attn_weights
 
 
@@ -138,6 +192,7 @@ def apply_rotary_pos_emb(q, k, cos, sin, position_ids=None, unsqueeze_dim=1):
     k_embed = (k * cos) + (rotate_half(k) * sin)
     return q_embed, k_embed
 
+
 def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
     """
     This is the equivalent of torch.repeat_interleave(x, dim=1, repeats=n_rep). The hidden states go from (batch,
@@ -146,7 +201,9 @@ def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
     batch, num_key_value_heads, slen, head_dim = hidden_states.shape
     if n_rep == 1:
         return hidden_states
-    hidden_states = hidden_states[:, :, None, :, :].expand(batch, num_key_value_heads, n_rep, slen, head_dim)
+    hidden_states = hidden_states[:, :, None, :, :].expand(
+        batch, num_key_value_heads, n_rep, slen, head_dim
+    )
     return hidden_states.reshape(batch, num_key_value_heads * n_rep, slen, head_dim)
 
 
@@ -163,14 +220,22 @@ def eager_attention_forward(
     key_states = repeat_kv(key, module.num_key_value_groups)
     value_states = repeat_kv(value, module.num_key_value_groups)
 
-    attn_weights = torch.matmul(query, key_states.transpose(2, 3)) * scaling
+    # Raw attention weights before softmax
+    attn_weights_raw = torch.matmul(query, key_states.transpose(2, 3)) * scaling
     if attention_mask is not None:
         causal_mask = attention_mask[:, :, :, : key_states.shape[-2]]
-        attn_weights = attn_weights + causal_mask
+        attn_weights_raw = attn_weights_raw + causal_mask
 
-    
-    attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query.dtype)
-    attn_weights = nn.functional.dropout(attn_weights, p=dropout, training=module.training)
+    # Store raw weights in the module for later access
+    if hasattr(module, "store_raw_weights") and module.store_raw_weights:
+        module.last_raw_weights = attn_weights_raw.detach().clone()
+
+    attn_weights = nn.functional.softmax(
+        attn_weights_raw, dim=-1, dtype=torch.float32
+    ).to(query.dtype)
+    attn_weights = nn.functional.dropout(
+        attn_weights, p=dropout, training=module.training
+    )
     attn_output = torch.matmul(attn_weights, value_states)
     attn_output = attn_output.transpose(1, 2).contiguous()
 
@@ -182,3 +247,46 @@ def rotate_half(x):
     x1 = x[..., : x.shape[-1] // 2]
     x2 = x[..., x.shape[-1] // 2 :]
     return torch.cat((-x2, x1), dim=-1)
+
+
+#
+
+
+class AttentionWeightsCollector:
+    """Helper class to collect raw attention weights from all layers"""
+
+    def __init__(self, model):
+        self.model = model
+        self.raw_weights = {}
+
+    def enable_collection(self):
+        """Enable raw weights collection for all attention layers"""
+        for name, module in self.model.named_modules():
+            if isinstance(module, Qwen3Attention_v1):
+                module.enable_raw_weights_storage()
+
+    def disable_collection(self):
+        """Disable raw weights collection for all attention layers"""
+        for name, module in self.model.named_modules():
+            if isinstance(module, Qwen3Attention_v1):
+                module.disable_raw_weights_storage()
+
+    def collect_attn(self):
+        """Collect raw weights from all layers after forward pass"""
+        self.raw_weights = {}
+        for name, module in self.model.named_modules():
+            if (
+                isinstance(module, Qwen3Attention_v1)
+                and module.last_raw_weights is not None
+            ):
+                self.raw_weights[f"layer_{module.layer_idx}"] = (
+                    module.last_raw_weights.clone()
+                )
+
+    def get_attn_for_layer(self, layer_idx: int):
+        """Get raw weights for a specific layer"""
+        return self.raw_weights.get(f"layer_{layer_idx}")
+
+    def get_all_attn(self):
+        """Get all collected raw weights"""
+        return self.raw_weights
